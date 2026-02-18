@@ -26,9 +26,10 @@ hr_min_wage_usd <- hr_min_wage_ksh / exchange_rate
 groups <- list(
   initial_visit = list(
     direct_costs = 22:26,
-    non_health_transport = c(20, 46),
+    # Changed non direct other (42) to transport based on data exploration
+    non_health_transport = c(20, 42, 46),
     non_health_food = c(39, 47),
-    non_health_other = 40:42,
+    non_health_other = 40:41,
     `indirect_costs_trans(min)` = c(15, 18),
     `indirect_costs_wait(min)` = c(16, 19)
   ),
@@ -131,13 +132,13 @@ patient_costing_2 <- patient_costing_1 |>
         sum_initial_visit_non_health_food,
         sum_initial_visit_non_health_other
       ),
-      .fns = ~ .x / exchange_rate,
+      .fns = ~ (.x * 13) / exchange_rate, # Annualize the costs based on 13 visits per year
       .names = "{.col}_usd"
     ),
     subtotal_direct_non_health_usd = (
-      sum_initial_visit_direct_costs_usd + 
-      sum_initial_visit_non_health_transport_usd + 
-      sum_initial_visit_non_health_food_usd + 
+      sum_initial_visit_direct_costs_usd +
+      sum_initial_visit_non_health_transport_usd +
+      sum_initial_visit_non_health_food_usd +
       sum_initial_visit_non_health_other_usd
     ),
     total_indirect_cost_usd = (
@@ -145,6 +146,7 @@ patient_costing_2 <- patient_costing_1 |>
        `sum_initial_visit_indirect_costs_wait(min)`) / 60 * hr_min_wage_usd),
     grand_total_usd = subtotal_direct_non_health_usd + total_indirect_cost_usd
   )
+
 
 # Define labels
 cost_labels <- list(
@@ -156,6 +158,20 @@ cost_labels <- list(
   total_indirect_cost_usd ~ "Indirect costs",
   grand_total_usd ~ "Direct + Indirect costs"
 )
+
+# Check for normality of the cost variables
+# Extract column names from the formula list
+col_names <- sapply(cost_labels, function(f) as.character(f)[2])
+
+normality_results <- patient_costing_2 |>
+  select(all_of(col_names)) |>
+  summarise(
+    across(
+      everything(),
+      ~ shapiro.test(.x)$p.value,
+      .names = "{.col}_p_value"
+    )
+  )
 
 # 1. Mean + CI Table
 table_mean <- patient_costing_2 |>
@@ -201,7 +217,7 @@ final_costing_table <- tbl_merge(
   modify_table_styling(
     column = label,
     rows = !variable %in% c("subtotal_direct_non_health_usd", "grand_total_usd", "total_indirect_cost_usd"),
-    text_format = "indent"
+    text_format = "bold"
   )
 
   gt::gtsave(
